@@ -39,10 +39,12 @@ use Behat\Testwork\EventDispatcher\Event\AfterExerciseCompleted;
 use Behat\Testwork\EventDispatcher\Event\AfterSuiteTested;
 use Behat\Testwork\EventDispatcher\Event\BeforeExerciseCompleted;
 use Behat\Testwork\EventDispatcher\Event\BeforeSuiteTested;
+use Behat\Testwork\Hook\Tester\Setup\HookedTeardown;
 use Behat\Testwork\Output\Formatter;
 use Behat\Testwork\Output\Printer\OutputPrinter;
 use Behat\Testwork\Tester\Result\ExceptionResult;
 use Symfony\Component\DependencyInjection\ParameterBag\ParameterBag;
+use Symfony\Component\Filesystem\Filesystem;
 use Yandex\Allure\Adapter\Allure;
 use Yandex\Allure\Adapter\AllureException;
 use Yandex\Allure\Adapter\Annotation\AnnotationManager;
@@ -332,7 +334,13 @@ class AllureFormatter implements Formatter
         $this->attachment[md5_file($this->exception->getScreenPath())] = $this->exception->getScreenPath();
         $this->attachment[md5_file($this->exception->getHtmlPath())] = $this->exception->getHtmlPath();
       }
+    } else {
+      // Note: next line is to get attachment from stoud of the test
+      // to handle attachment that are made in hooks scope
+      // test framework should not keep doing but start using ArtifactExceptionInterface
+      $this->getAttachments($event);
     }
+
 
     switch ($event->getTestResult()->getResultCode()) {
       case StepResult::FAILED:
@@ -489,6 +497,24 @@ class AllureFormatter implements Formatter
     }
 
     return $parameters;
+  }
+
+  protected function getAttachments($event)
+  {
+    $teardown = $event->getTeardown();
+    if ($teardown instanceof HookedTeardown && $teardown->isSuccessful()) {
+      $callResults = $teardown->getHookCallResults()->toArray();
+      foreach ($callResults as $callResult) {
+        $out = $callResult->getStdOut();
+        $lines = preg_split('/$\R?^/m', $out);
+        $fs = new Filesystem();
+        foreach ($lines as $line) {
+          if ($fs->exists($line)) {
+            $this->attachment[md5_file($line)] = $line;
+          }
+        }
+      }
+    }
   }
 
   protected function addAttachments()
